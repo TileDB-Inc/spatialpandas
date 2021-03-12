@@ -31,6 +31,7 @@ install_requires = [
     'pyarrow>=1.0',
     'python-snappy',
     'retrying',
+    'tiledb>=0.8.6',
 ]
 
 # Checking for platform explicitly because
