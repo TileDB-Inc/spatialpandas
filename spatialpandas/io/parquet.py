@@ -18,25 +18,8 @@ from pyarrow import parquet as pq
 
 from .. import GeoDataFrame
 from ..dask import DaskGeoDataFrame
-from ..geometry import (GeometryDtype, LineDtype, MultiLineDtype,
-                                    MultiPointDtype, MultiPolygonDtype,
-                                    PointDtype, PolygonDtype, RingDtype)
-from ..geometry.base import to_geometry_array
+from ..geometry import GeometryDtype
 from ..io.utils import validate_coerce_filesystem
-
-_geometry_dtypes = [
-    PointDtype, MultiPointDtype, RingDtype, LineDtype,
-    MultiLineDtype, PolygonDtype, MultiPolygonDtype
-]
-
-
-def _import_geometry_columns(df, geom_cols):
-    new_cols = {}
-    for col, type_str in geom_cols.items():
-        if col in df and not isinstance(df.dtypes[col], GeometryDtype):
-            new_cols[col] = to_geometry_array(df[col], dtype=type_str)
-
-    return df.assign(**new_cols)
 
 
 def _load_parquet_pandas_metadata(path, filesystem=None):
@@ -63,24 +46,6 @@ def _load_parquet_pandas_metadata(path, filesystem=None):
     return json.loads(
         metadata.get(b'pandas', b'{}').decode('utf')
     )
-
-
-def _get_geometry_columns(pandas_metadata):
-    columns = pandas_metadata.get('columns', [])
-    geom_cols = {}
-    for col in columns:
-        type_string = col.get('numpy_type', None)
-        is_geom_col = False
-        for geom_type in _geometry_dtypes:
-            try:
-                geom_type.construct_from_string(type_string)
-                is_geom_col = True
-            except TypeError:
-                pass
-        if is_geom_col:
-            geom_cols[col["name"]] = col["numpy_type"]
-
-    return geom_cols
 
 
 def to_parquet(
@@ -132,11 +97,6 @@ def read_parquet(
     df = pq.ParquetDataset(
         path, filesystem=filesystem, validate_schema=False
     ).read(columns=columns).to_pandas()
-
-    # Import geometry columns, not needed for pyarrow >= 0.16
-    geom_cols = _get_geometry_columns(metadata)
-    if geom_cols:
-        df = _import_geometry_columns(df, geom_cols)
 
     # Return result
     return GeoDataFrame(df)
@@ -345,11 +305,6 @@ def _perform_read_parquet_dask(
         gather_statistics=False,
     )._meta
 
-    # Import geometry columns in meta, not needed for pyarrow >= 0.16
-    metadata = _load_parquet_pandas_metadata(paths[0], filesystem=filesystem)
-    geom_cols = _get_geometry_columns(metadata)
-    if geom_cols:
-        meta = _import_geometry_columns(meta, geom_cols)
     meta = GeoDataFrame(meta)
 
     # Handle geometry in meta
