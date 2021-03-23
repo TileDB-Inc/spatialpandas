@@ -26,9 +26,9 @@ hyp_settings = settings(
 
 
 @given(
-    gp_point=st_point_array(min_size=1, geoseries=True),
-    gp_multipoint=st_multipoint_array(min_size=1, geoseries=True),
-    gp_multiline=st_multiline_array(min_size=1, geoseries=True),
+    gp_point=st_point_array(min_size=1, astype=GeoSeries),
+    gp_multipoint=st_multipoint_array(min_size=1, astype=GeoSeries),
+    gp_multiline=st_multiline_array(min_size=1, astype=GeoSeries),
 )
 @hyp_settings
 def test_parquet(gp_point, gp_multipoint, gp_multiline, tmp_path_factory):
@@ -36,9 +36,9 @@ def test_parquet(gp_point, gp_multipoint, gp_multiline, tmp_path_factory):
         # Build dataframe
         n = min(len(gp_multipoint), len(gp_multiline))
         df = GeoDataFrame({
-            'point': GeoSeries(gp_point[:n]),
-            'multipoint': GeoSeries(gp_multipoint[:n]),
-            'multiline': GeoSeries(gp_multiline[:n]),
+            'point': gp_point[:n],
+            'multipoint': gp_multipoint[:n],
+            'multiline': gp_multiline[:n],
             'a': list(range(n))
         })
 
@@ -53,9 +53,9 @@ def test_parquet(gp_point, gp_multipoint, gp_multiline, tmp_path_factory):
 
 
 @given(
-    gp_point=st_point_array(min_size=1, geoseries=True),
-    gp_multipoint=st_multipoint_array(min_size=1, geoseries=True),
-    gp_multiline=st_multiline_array(min_size=1, geoseries=True),
+    gp_point=st_point_array(min_size=1, astype=GeoSeries),
+    gp_multipoint=st_multipoint_array(min_size=1, astype=GeoSeries),
+    gp_multiline=st_multiline_array(min_size=1, astype=GeoSeries),
 )
 @hyp_settings
 def test_parquet_columns(gp_point, gp_multipoint, gp_multiline,
@@ -64,9 +64,9 @@ def test_parquet_columns(gp_point, gp_multipoint, gp_multiline,
         # Build dataframe
         n = min(len(gp_multipoint), len(gp_multiline))
         df = GeoDataFrame({
-            'point': GeoSeries(gp_point[:n]),
-            'multipoint': GeoSeries(gp_multipoint[:n]),
-            'multiline': GeoSeries(gp_multiline[:n]),
+            'point': gp_point[:n],
+            'multipoint': gp_multipoint[:n],
+            'multiline': gp_multiline[:n],
             'a': list(range(n))
         })
 
@@ -79,8 +79,8 @@ def test_parquet_columns(gp_point, gp_multipoint, gp_multiline,
 
 
 @given(
-    gp_multipoint=st_multipoint_array(min_size=1, geoseries=True),
-    gp_multiline=st_multiline_array(min_size=1, geoseries=True),
+    gp_multipoint=st_multipoint_array(min_size=1, astype=GeoSeries),
+    gp_multiline=st_multiline_array(min_size=1, astype=GeoSeries),
 )
 @hyp_settings
 def test_parquet_dask(gp_multipoint, gp_multiline, tmp_path_factory):
@@ -88,8 +88,8 @@ def test_parquet_dask(gp_multipoint, gp_multiline, tmp_path_factory):
         # Build dataframe
         n = min(len(gp_multipoint), len(gp_multiline))
         df = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint[:n]),
-            'lines': GeoSeries(gp_multiline[:n]),
+            'points': gp_multipoint[:n],
+            'lines': gp_multiline[:n],
             'a': list(range(n))
         })
         ddf = dd.from_pandas(df, npartitions=3)
@@ -129,16 +129,16 @@ def test_parquet_dask(gp_multipoint, gp_multiline, tmp_path_factory):
 
 
 @given(
-    gp_multipoint=st_multipoint_array(min_size=10, max_size=40, geoseries=True),
-    gp_multiline=st_multiline_array(min_size=10, max_size=40, geoseries=True),
+    gp_multipoint=st_multipoint_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multiline=st_multiline_array(min_size=10, max_size=40, astype=GeoSeries),
 )
 @settings(deadline=None, max_examples=30)
 def test_pack_partitions(gp_multipoint, gp_multiline):
     # Build dataframe
     n = min(len(gp_multipoint), len(gp_multiline))
     df = GeoDataFrame({
-        'points': GeoSeries(gp_multipoint[:n]),
-        'lines': GeoSeries(gp_multiline[:n]),
+        'points': gp_multipoint[:n],
+        'lines': gp_multiline[:n],
         'a': list(range(n))
     }).set_geometry('lines')
     ddf = dd.from_pandas(df, npartitions=3)
@@ -165,8 +165,8 @@ def test_pack_partitions(gp_multipoint, gp_multiline):
 
 @pytest.mark.slow
 @given(
-    gp_multipoint=st_multipoint_array(min_size=60, max_size=100, geoseries=True),
-    gp_multiline=st_multiline_array(min_size=60, max_size=100, geoseries=True),
+    gp_multipoint=st_multipoint_array(min_size=60, max_size=100, astype=GeoSeries),
+    gp_multiline=st_multiline_array(min_size=60, max_size=100, astype=GeoSeries),
     use_temp_format=hs.booleans()
 )
 @settings(
@@ -187,8 +187,8 @@ def test_pack_partitions_to_parquet(gp_multipoint, gp_multiline,
         # Build dataframe
         n = min(len(gp_multipoint), len(gp_multiline))
         df = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint[:n]),
-            'lines': GeoSeries(gp_multiline[:n]),
+            'points': gp_multipoint[:n],
+            'lines': gp_multiline[:n],
             'a': list(range(n))
         }).set_geometry('lines')
         ddf = dd.from_pandas(df, npartitions=3)
@@ -240,10 +240,10 @@ def test_pack_partitions_to_parquet(gp_multipoint, gp_multiline,
 
 @pytest.mark.slow
 @given(
-    gp_multipoint1=st_multipoint_array(min_size=10, max_size=40, geoseries=True),
-    gp_multiline1=st_multiline_array(min_size=10, max_size=40, geoseries=True),
-    gp_multipoint2=st_multipoint_array(min_size=10, max_size=40, geoseries=True),
-    gp_multiline2=st_multiline_array(min_size=10, max_size=40, geoseries=True),
+    gp_multipoint1=st_multipoint_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multiline1=st_multiline_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multipoint2=st_multipoint_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multiline2=st_multiline_array(min_size=10, max_size=40, astype=GeoSeries),
 )
 @settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
 def test_pack_partitions_to_parquet_glob(gp_multipoint1, gp_multiline1,
@@ -253,8 +253,8 @@ def test_pack_partitions_to_parquet_glob(gp_multipoint1, gp_multiline1,
         # Build dataframe1
         n = min(len(gp_multipoint1), len(gp_multiline1))
         df1 = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint1[:n]),
-            'lines': GeoSeries(gp_multiline1[:n]),
+            'points': gp_multipoint1[:n],
+            'lines': gp_multiline1[:n],
             'a': list(range(n))
         }).set_geometry('lines')
         ddf1 = dd.from_pandas(df1, npartitions=3)
@@ -264,8 +264,8 @@ def test_pack_partitions_to_parquet_glob(gp_multipoint1, gp_multiline1,
         # Build dataframe2
         n = min(len(gp_multipoint2), len(gp_multiline2))
         df2 = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint2[:n]),
-            'lines': GeoSeries(gp_multiline2[:n]),
+            'points': gp_multipoint2[:n],
+            'lines': gp_multiline2[:n],
             'a': list(range(n))
         }).set_geometry('lines')
         ddf2 = dd.from_pandas(df2, npartitions=3)
@@ -309,10 +309,10 @@ def test_pack_partitions_to_parquet_glob(gp_multipoint1, gp_multiline1,
 
 @pytest.mark.slow
 @given(
-    gp_multipoint1=st_multipoint_array(min_size=10, max_size=40, geoseries=True),
-    gp_multiline1=st_multiline_array(min_size=10, max_size=40, geoseries=True),
-    gp_multipoint2=st_multipoint_array(min_size=10, max_size=40, geoseries=True),
-    gp_multiline2=st_multiline_array(min_size=10, max_size=40, geoseries=True),
+    gp_multipoint1=st_multipoint_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multiline1=st_multiline_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multipoint2=st_multipoint_array(min_size=10, max_size=40, astype=GeoSeries),
+    gp_multiline2=st_multiline_array(min_size=10, max_size=40, astype=GeoSeries),
     bounds=st_bounds(),
 )
 @settings(deadline=None, max_examples=30, suppress_health_check=[HealthCheck.too_slow])
@@ -325,8 +325,8 @@ def test_pack_partitions_to_parquet_list_bounds(
         # Build dataframe1
         n = min(len(gp_multipoint1), len(gp_multiline1))
         df1 = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint1[:n]),
-            'lines': GeoSeries(gp_multiline1[:n]),
+            'points': gp_multipoint1[:n],
+            'lines': gp_multiline1[:n],
             'a': list(range(n))
         }).set_geometry('lines')
         ddf1 = dd.from_pandas(df1, npartitions=3)
@@ -336,8 +336,8 @@ def test_pack_partitions_to_parquet_list_bounds(
         # Build dataframe2
         n = min(len(gp_multipoint2), len(gp_multiline2))
         df2 = GeoDataFrame({
-            'points': GeoSeries(gp_multipoint2[:n]),
-            'lines': GeoSeries(gp_multiline2[:n]),
+            'points': gp_multipoint2[:n],
+            'lines': gp_multiline2[:n],
             'a': list(range(n))
         }).set_geometry('lines')
         ddf2 = dd.from_pandas(df2, npartitions=3)

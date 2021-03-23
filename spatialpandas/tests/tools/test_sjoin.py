@@ -28,8 +28,8 @@ if not gpd_spatialindex:
 
 
 @given(
-    st_point_array(min_size=1, geoseries=True),
-    st_polygon_array(min_size=1, geoseries=True),
+    st_point_array(min_size=1),
+    st_polygon_array(min_size=1),
     hs.sampled_from(["inner", "left", "right"])
 )
 @hyp_settings
