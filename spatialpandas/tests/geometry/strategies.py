@@ -8,6 +8,8 @@ from shapely import geometry as sg
 from shapely.affinity import scale, translate
 from shapely.ops import cascaded_union, polygonize
 
+from spatialpandas import GeoDataFrame, GeoSeries
+
 hyp_settings = settings(
     deadline=None,
     max_examples=500,
@@ -23,7 +25,7 @@ st_points = arrays(
         allow_infinity=False, allow_nan=False, max_value=60, min_value=-60
     ),
     shape=(100, 2),
-    dtype='float64'
+    dtype="float64",
 )
 
 
@@ -84,7 +86,7 @@ def st_line_array(draw, min_size=0, max_size=30, astype=None):
 
 
 def get_unique_points(
-        n, x_range=(0, 10), x_grid_dim=101, y_range=(0, 10), y_grid_dim=101
+    n, x_range=(0, 10), x_grid_dim=101, y_range=(0, 10), y_grid_dim=101
 ):
     """
     Get array of unique points, randomly drawn from a uniform grid
@@ -151,9 +153,9 @@ def st_polygon(draw, n=10, num_holes=None, xmid=0, ymid=0):
         points[:, 1] = points[:, 1] + ymid
 
         vor = Voronoi(points)
-        mls = sg.MultiLineString([
-            vor.vertices[s] for s in vor.ridge_vertices if all(np.array(s) >= 0)
-        ])
+        mls = sg.MultiLineString(
+            [vor.vertices[s] for s in vor.ridge_vertices if all(np.array(s) >= 0)]
+        )
 
         poly = cascaded_union(list(polygonize(mls)))
         poly = poly.intersection(sg.box(-50, -50, 50, 50))
@@ -172,9 +174,9 @@ def st_polygon(draw, n=10, num_holes=None, xmid=0, ymid=0):
         points[:, 0] = points[:, 0] + xmid
         points[:, 1] = points[:, 1] + ymid
         vor = Voronoi(points)
-        mls = sg.MultiLineString([
-            vor.vertices[s] for s in vor.ridge_vertices if all(np.array(s) >= 0)
-        ])
+        mls = sg.MultiLineString(
+            [vor.vertices[s] for s in vor.ridge_vertices if all(np.array(s) >= 0)]
+        )
         hole_components = [p for p in polygonize(mls) if poly.contains(p)]
         if hole_components:
             hole = cascaded_union([p for p in polygonize(mls) if poly.contains(p)])
@@ -208,8 +210,8 @@ def st_multipolygon_array(draw, min_size=0, max_size=5, astype=None):
     n = draw(st.integers(min_value=min_size, max_value=max_size))
     sg_multipolygons = []
     for _ in range(n):
-        xmid=draw(st.floats(-50, 50))
-        ymid=draw(st.floats(-50, 50))
+        xmid = draw(st.floats(-50, 50))
+        ymid = draw(st.floats(-50, 50))
         polygon = draw(st_polygon(xmid=xmid, ymid=ymid))
         m = draw(st.integers(min_value=1, max_value=4))
 
@@ -221,9 +223,7 @@ def st_multipolygon_array(draw, min_size=0, max_size=5, astype=None):
         for j in range(1, m):
             polygon = scale(polygons[j], 0.8, 0.5)
             poly_x0, poly_y0, poly_x1, poly_y1 = polygon.bounds
-            new_polygon = translate(
-                polygon, yoff=last_y1 - poly_y0 + 1
-            )
+            new_polygon = translate(polygon, yoff=last_y1 - poly_y0 + 1)
             _, _, last_x1, last_y1 = new_polygon.bounds
             polygons[j] = new_polygon
 
@@ -236,12 +236,46 @@ def st_multipolygon_array(draw, min_size=0, max_size=5, astype=None):
 
 
 @st.composite
+def st_geodataframe(draw, min_size=1, max_size=5, column_names=None):
+    n = draw(st.integers(min_size, max_size))
+    kwargs = dict(min_size=n, max_size=n, astype=GeoSeries)
+
+    columns = {}
+    if column_names is None or "points" in column_names:
+        columns["points"] = draw(st_point_array(**kwargs))
+    if column_names is None or "multipoints" in column_names:
+        columns["multipoints"] = draw(st_multipoint_array(**kwargs))
+    if column_names is None or "lines" in column_names:
+        columns["lines"] = draw(st_line_array(**kwargs))
+    if column_names is None or "multilines" in column_names:
+        columns["multilines"] = draw(st_multiline_array(**kwargs))
+    if column_names is None or "polygons" in column_names:
+        columns["polygons"] = draw(st_polygon_array(**kwargs))
+    if column_names is None or "multipolygons" in column_names:
+        columns["multipolygons"] = draw(st_multipolygon_array(**kwargs))
+    if column_names is None or "rings" in column_names:
+        r = max(n, 3)
+        ring_kwargs = dict(min_size=r, max_size=r, astype=GeoSeries)
+        columns["rings"] = draw(st_ring_array(**ring_kwargs))[:n]
+    if column_names is None or "a" in column_names:
+        columns["a"] = np.arange(n)
+
+    return GeoDataFrame(columns)
+
+
+@st.composite
 def st_bounds(draw, x_min=-60, y_min=-60, x_max=60, y_max=60, orient=False):
     x_float = st.floats(
-        allow_infinity=False, allow_nan=False, min_value=x_min, max_value=x_max,
+        allow_infinity=False,
+        allow_nan=False,
+        min_value=x_min,
+        max_value=x_max,
     )
     y_float = st.floats(
-        allow_infinity=False, allow_nan=False, min_value=y_min, max_value=y_max,
+        allow_infinity=False,
+        allow_nan=False,
+        min_value=y_min,
+        max_value=y_max,
     )
     # Generate x range
     x0, x1 = draw(x_float), draw(x_float)
