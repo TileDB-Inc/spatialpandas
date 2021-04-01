@@ -1,8 +1,9 @@
-__all__ = ["to_tiledb", "read_tiledb", "to_tiledb_cloud"]
+__all__ = ["to_tiledb", "read_tiledb", "to_tiledb_cloud", "read_tiledb_cloud"]
 
+import itertools as it
 import json
 from collections import defaultdict
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,15 +25,7 @@ def read_tiledb(
     columns: Optional[Sequence[str]] = None,
     ctx: Optional[tiledb.Ctx] = None,
 ) -> GeoDataFrame:
-    df = tiledb.open_dataframe(uri, attrs=columns, use_arrow=False, ctx=ctx)
-    new_columns = {}
-    for name, column in df.items():
-        if isinstance(column.dtype, FlatGeometryDtype):
-            new_columns[name] = column.astype(column.dtype.geometry_dtype)
-        else:
-            new_columns[name] = column
-
-    return GeoDataFrame(new_columns, index=df.index)
+    return _read_geodataframe(uri, slice(None, None), attrs=columns, ctx=ctx)
 
 
 def to_tiledb_cloud(
@@ -89,6 +82,43 @@ def to_tiledb_cloud(
                 "partition_bounds": partition_bounds,
             }
         )
+
+
+def read_tiledb_cloud(
+    uri: str,
+    columns: Optional[Sequence[str]] = None,
+    geometry: Optional[str] = None,
+    ctx: Optional[tiledb.Ctx] = None,
+) -> GeoDataFrame:
+    partition_slices, partition_bounds = load_partition_metadata(uri)
+    return _read_geodataframe(uri, *partition_slices, geometry=geometry, attrs=columns, ctx=ctx)
+
+
+# ========= helper functions ====================================================
+
+
+def _read_geodataframe(
+    uri: str,
+    *partition_slices: slice,
+    geometry: Optional[str] = None,
+    **kwargs,
+) -> GeoDataFrame:
+    column_lists = defaultdict(list)
+    for partition_slice in partition_slices:
+        # read the dataframe for this partition slice
+        df = tiledb.open_dataframe(uri, idx=partition_slice, use_arrow=False, **kwargs)
+        for name, column in df.items():
+            # unflatten the geometry columns
+            if isinstance(column.dtype, FlatGeometryDtype):
+                column = column.astype(column.dtype.geometry_dtype)
+            # collect columns across all partitions to concat them later
+            column_lists[name].append(column)
+
+    new_columns = {
+        name: pd.concat(columns) if len(columns) > 1 else columns[0]
+        for name, columns in column_lists.items()
+    }
+    return GeoDataFrame(new_columns, geometry=geometry)
 
 
 def _iter_flat_geometry_dtypes(df: GeoDataFrame) -> Iterable[FlatGeometryDtype]:
@@ -169,3 +199,21 @@ def iter_partition_slices(array: np.ndarray, n: int) -> Iterable[slice]:
         slice(unique[start], unique[stop])
         for start, stop in zip(start_indices, stop_indices)
     )
+
+
+def load_partition_metadata(
+    uri: str, ctx: Optional[tiledb.Ctx] = None
+) -> Tuple[Sequence[slice], Mapping[str, pd.DataFrame]]:
+    with tiledb.open(uri, ctx=ctx) as a:
+        try:
+            spatialpandas = json.loads(a.meta["spatialpandas"])
+        except KeyError:
+            return (), {}
+
+    partition_slices = tuple(it.starmap(slice, spatialpandas["partition_ranges"]))
+
+    partition_bounds = spatialpandas["partition_bounds"]
+    for name, bounds_dict in partition_bounds.items():
+        partition_bounds[name] = pd.DataFrame(**bounds_dict)
+
+    return partition_slices, partition_bounds
