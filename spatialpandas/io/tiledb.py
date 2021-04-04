@@ -3,6 +3,7 @@ __all__ = ["to_tiledb", "read_tiledb", "to_tiledb_cloud", "read_tiledb_cloud"]
 import itertools as it
 import json
 from collections import defaultdict
+from numbers import Real
 from typing import Iterable, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -86,12 +87,41 @@ def to_tiledb_cloud(
 
 def read_tiledb_cloud(
     uri: str,
+    bounds: Optional[Tuple[Real, Real, Real, Real]] = None,
     columns: Optional[Sequence[str]] = None,
     geometry: Optional[str] = None,
     ctx: Optional[tiledb.Ctx] = None,
 ) -> GeoDataFrame:
+    kwargs = dict(geometry=geometry, attrs=columns, ctx=ctx)
+    # get an empty geodataframe to determine the geometry column
+    empty_df = _read_geodataframe(uri, **kwargs)
+    # load the metadata for partitions and geometry column bounds
     partition_slices, partition_bounds = load_partition_metadata(uri)
-    return _read_geodataframe(uri, *partition_slices, geometry=geometry, attrs=columns, ctx=ctx)
+
+    if bounds is not None:
+        # get the bounds of partitions for the determined geometry column
+        partition_bounds_df = partition_bounds.get(empty_df.geometry.name)
+        if partition_bounds_df is not None:
+            # Unpack bounds coordinates and make sure x0 < x1 & y0 < y1
+            x0, y0, x1, y1 = bounds
+            if x0 > x1:
+                x0, x1 = x1, x0
+            if y0 > y1:
+                y0, y1 = y1, y0
+            # determine which partitions have non-zero overlap with the bounds rectangle
+            inds = ~(
+                (partition_bounds_df.x1 < x0)
+                | (partition_bounds_df.y1 < y0)
+                | (partition_bounds_df.x0 > x1)
+                | (partition_bounds_df.y0 > y1)
+            )
+            partition_slices = np.array(partition_slices)[inds].tolist()
+
+    if not partition_slices:
+        # all partitions filtered out
+        return empty_df
+
+    return _read_geodataframe(uri, *partition_slices, **kwargs)
 
 
 # ========= helper functions ====================================================
@@ -103,10 +133,12 @@ def _read_geodataframe(
     geometry: Optional[str] = None,
     **kwargs,
 ) -> GeoDataFrame:
+    # default to empty dataframe for no partition_slices
+    idxs = partition_slices or (None,)
     column_lists = defaultdict(list)
-    for partition_slice in partition_slices:
+    for idx in idxs:
         # read the dataframe for this partition slice
-        df = tiledb.open_dataframe(uri, idx=partition_slice, use_arrow=False, **kwargs)
+        df = tiledb.open_dataframe(uri, idx=idx, use_arrow=False, **kwargs)
         for name, column in df.items():
             # unflatten the geometry columns
             if isinstance(column.dtype, FlatGeometryDtype):
