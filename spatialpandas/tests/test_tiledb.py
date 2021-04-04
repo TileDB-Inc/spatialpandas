@@ -10,9 +10,7 @@ from spatialpandas.io.tiledb import (
     iter_partition_slices,
     load_partition_metadata,
     read_tiledb,
-    read_tiledb_cloud,
     to_tiledb,
-    to_tiledb_cloud,
 )
 
 hyp_settings = settings(
@@ -64,108 +62,12 @@ def test_iter_partition_slices():
         assert list(iter_partition_slices(a, p)) == [slice(i, i) for i in np.unique(a)]
 
 
-@given(df=st_geodataframe())
+@given(df=st_geodataframe(min_size=8, max_size=20), npartitions=st.sampled_from([3, 7]))
 @hyp_settings
-def test_tiledb(df, tmp_path_factory):
-    df.index.name = "range_idx"
-
+def test_load_partition_metadata(df, npartitions, tmp_path_factory):
     with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
         uri = str(tmp_path / "df.tdb")
-        to_tiledb(df, uri)
-
-        df_read = read_tiledb(uri)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df, df_read)
-
-        columns = ["a", "multilines", "polygons"]
-        df_read = read_tiledb(uri, columns=columns)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df[columns], df_read)
-
-
-@given(df=st_geodataframe(min_size=8, max_size=20), pack=st.booleans())
-@hyp_settings
-def test_to_tiledb_cloud(df, pack, tmp_path_factory):
-    if pack:
-        pack_geodataframe(df, inplace=True)
-
-    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
-        uri = str(tmp_path / "df.tdb")
-        to_tiledb_cloud(df, uri, npartitions=3)
-
-        df_read = read_tiledb(uri)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df.sort_index(), df_read.sort_index())
-
-        columns = ["a", "multilines", "polygons"]
-        df_read = read_tiledb(uri, columns=columns)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df[columns].sort_index(), df_read.sort_index())
-
-
-@given(df=st_geodataframe(min_size=8, max_size=20), pack=st.booleans())
-@hyp_settings
-def test_read_tiledb_cloud(df, pack, tmp_path_factory):
-    if pack:
-        pack_geodataframe(df, inplace=True)
-
-    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
-        uri = str(tmp_path / "df.tdb")
-        to_tiledb_cloud(df, uri, npartitions=3)
-
-        df_read = read_tiledb_cloud(uri)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df.sort_index(), df_read.sort_index())
-
-        columns = ["a", "multilines", "polygons"]
-        df_read = read_tiledb_cloud(uri, columns=columns)
-        assert isinstance(df_read, GeoDataFrame)
-        pd.testing.assert_frame_equal(df[columns].sort_index(), df_read.sort_index())
-
-
-@given(
-    df=st_geodataframe(min_size=8, max_size=20),
-    geometry=st.sampled_from(
-        ["points", "multipoints", "lines", "multilines", "polygons", "multipolygons"]
-    ),
-    bounds=st_bounds(),
-)
-@hyp_settings
-def test_read_tiledb_cloud_bounds(df, geometry, bounds, tmp_path_factory):
-    pack_geodataframe(df, inplace=True)
-
-    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
-        uri = str(tmp_path / "df.tdb")
-        to_tiledb_cloud(df, uri, npartitions=3)
-
-        df_read = read_tiledb_cloud(uri, bounds=bounds, geometry=geometry)
-        assert isinstance(df_read, GeoDataFrame)
-        assert df_read.geometry.name == geometry
-
-        # create a DaskGeoDataFrame with the same partitions created by to_tiledb_cloud
-        p_slices, p_bounds = load_partition_metadata(uri)
-        divisions = [*(s.start for s in p_slices), p_slices[-1].stop]
-        ddf = (
-            dd.from_pandas(df, npartitions=1)
-            .repartition(divisions=divisions)
-            .set_geometry(geometry)
-        )
-
-        # and use the `ddf.cx_partitions` indexer to get the expected bounded partitions
-        x0, y0, x1, y1 = bounds
-        expected_df = ddf.cx_partitions[x0:x1, y0:y1].compute()
-
-        # verify they are equal
-        pd.testing.assert_frame_equal(expected_df.sort_index(), df_read.sort_index())
-
-
-@given(df=st_geodataframe(min_size=3))
-@hyp_settings
-def test_load_partition_metadata(df, tmp_path_factory):
-    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
-        uri = str(tmp_path / "df.tdb")
-        npartitions = 3
-        to_tiledb_cloud(df, uri, npartitions=npartitions)
+        to_tiledb(df, uri, npartitions=npartitions)
 
         partition_ranges, partition_bounds = load_partition_metadata(uri)
 
@@ -176,3 +78,63 @@ def test_load_partition_metadata(df, tmp_path_factory):
         for partition_bounds_df in partition_bounds.values():
             assert tuple(partition_bounds_df.columns) == ("x0", "y0", "x1", "y1")
             assert len(partition_bounds_df) == npartitions
+
+
+@given(
+    df=st_geodataframe(min_size=8, max_size=20),
+    pack=st.booleans(),
+    npartitions=st.sampled_from([0, 3]),
+)
+@hyp_settings
+def test_to_tiledb_read_tiledb_roundtrip(df, pack, npartitions, tmp_path_factory):
+    if pack:
+        pack_geodataframe(df, inplace=True)
+
+    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
+        uri = str(tmp_path / "df.tdb")
+        to_tiledb(df, uri, npartitions=npartitions)
+
+        geometry = "multilines"
+
+        df_read = read_tiledb(uri, geometry=geometry)
+        assert isinstance(df_read, GeoDataFrame)
+        assert df_read.geometry.name == geometry
+        pd.testing.assert_frame_equal(df.sort_index(), df_read.sort_index())
+
+        columns = ["a", "multilines", "polygons"]
+        df_read = read_tiledb(uri, columns=columns, geometry=geometry)
+        assert isinstance(df_read, GeoDataFrame)
+        assert df_read.geometry.name == geometry
+        pd.testing.assert_frame_equal(df[columns].sort_index(), df_read.sort_index())
+
+
+@given(
+    df=st_geodataframe(min_size=8, max_size=20),
+    geometry=st.sampled_from([None, "lines", "polygons"]),
+    bounds=st_bounds(),
+)
+@hyp_settings
+def test_read_tiledb_bounds(df, geometry, bounds, tmp_path_factory):
+    pack_geodataframe(df, inplace=True)
+
+    with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
+        uri = str(tmp_path / "df.tdb")
+        to_tiledb(df, uri, npartitions=3)
+
+        df_read = read_tiledb(uri, bounds=bounds, geometry=geometry)
+        assert isinstance(df_read, GeoDataFrame)
+        assert df_read.geometry.name == geometry or df.geometry.name
+
+        # create a DaskGeoDataFrame with the same partitions created by to_tiledb
+        p_slices, p_bounds = load_partition_metadata(uri)
+        divisions = [*(s.start for s in p_slices), p_slices[-1].stop]
+        ddf = dd.from_pandas(df, npartitions=1).repartition(divisions=divisions)
+        if geometry:
+            ddf = ddf.set_geometry(geometry)
+
+        # and use the `ddf.cx_partitions` indexer to get the expected bounded partitions
+        x0, y0, x1, y1 = bounds
+        expected_df = ddf.cx_partitions[x0:x1, y0:y1].compute()
+
+        # verify they are equal
+        pd.testing.assert_frame_equal(expected_df.sort_index(), df_read.sort_index())

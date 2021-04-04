@@ -1,4 +1,4 @@
-__all__ = ["to_tiledb", "read_tiledb", "to_tiledb_cloud", "read_tiledb_cloud"]
+__all__ = ["to_tiledb", "read_tiledb"]
 
 import itertools as it
 import json
@@ -15,24 +15,23 @@ from ..geometry import GeometryDtype
 from ..geometry.flattened import FlatGeometryArray, FlatGeometryDtype
 
 
-def to_tiledb(df: GeoDataFrame, uri: str, ctx: Optional[tiledb.Ctx] = None) -> None:
-    df = _flatten_geometry_columns(df)
-    varlen_types = frozenset(_iter_flat_geometry_dtypes(df))
-    return tiledb.from_pandas(uri, df, varlen_types=varlen_types, ctx=ctx)
-
-
-def read_tiledb(
-    uri: str,
-    columns: Optional[Sequence[str]] = None,
-    ctx: Optional[tiledb.Ctx] = None,
-) -> GeoDataFrame:
-    return _read_geodataframe(uri, slice(None, None), attrs=columns, ctx=ctx)
-
-
-def to_tiledb_cloud(
-    df: GeoDataFrame, uri: str, npartitions: int = 8, ctx: Optional[tiledb.Ctx] = None
+def to_tiledb(
+    df: GeoDataFrame, uri: str, npartitions: int = 0, ctx: Optional[tiledb.Ctx] = None
 ) -> None:
+    kwargs = dict(
+        # write a dense array only if the df index is range(0, len(df))
+        sparse=not df.index.equals(pd.RangeIndex(len(df))),
+        varlen_types=frozenset(
+            FlatGeometryDtype(dtype)
+            for dtype in df.dtypes
+            if isinstance(dtype, GeometryDtype)
+        ),
+        ctx=ctx,
+    )
+
     npartitions = min(len(df), npartitions)
+    if npartitions <= 0:
+        return tiledb.from_pandas(uri, _flatten_geometry_columns(df), **kwargs)
 
     # sort the dataframe by the first index level if not already sorted
     # TODO: figure out how to take into account all levels for MultiIndex
@@ -66,14 +65,7 @@ def to_tiledb_cloud(
     }
 
     # write all partitions to tiledb
-    _from_multiple_pandas(
-        uri,
-        dfs=map(_flatten_geometry_columns, partition_dfs),
-        # dense array if the df index is range(0, len(df))
-        sparse=not df.index.equals(pd.RangeIndex(len(df))),
-        varlen_types=frozenset(_iter_flat_geometry_dtypes(df)),
-        ctx=ctx,
-    )
+    _from_multiple_pandas(uri, map(_flatten_geometry_columns, partition_dfs), **kwargs)
 
     # save the partition ranges and geometry bounds as metadata
     with tiledb.open(uri, mode="w", ctx=ctx) as a:
@@ -85,24 +77,32 @@ def to_tiledb_cloud(
         )
 
 
-def read_tiledb_cloud(
+def read_tiledb(
     uri: str,
-    bounds: Optional[Tuple[Real, Real, Real, Real]] = None,
+    *,
     columns: Optional[Sequence[str]] = None,
     geometry: Optional[str] = None,
+    bounds: Optional[Tuple[Real, Real, Real, Real]] = None,
     ctx: Optional[tiledb.Ctx] = None,
 ) -> GeoDataFrame:
     kwargs = dict(geometry=geometry, attrs=columns, ctx=ctx)
-    # get an empty geodataframe to determine the geometry column
-    empty_df = _read_geodataframe(uri, **kwargs)
+
     # load the metadata for partitions and geometry column bounds
     partition_slices, partition_bounds = load_partition_metadata(uri)
 
+    # no partition metadata found: read the whole geodataframe
+    if not partition_slices:
+        return _read_geodataframe(uri, slice(None, None), **kwargs)
+
     if bounds is not None:
-        # get the bounds of partitions for the determined geometry column
-        partition_bounds_df = partition_bounds.get(empty_df.geometry.name)
+        if geometry is None:
+            # get an empty geodataframe to determine the geometry column
+            geometry = _read_geodataframe(uri, **kwargs).geometry.name
+
+        # get the bounds of partitions for the geometry column
+        partition_bounds_df = partition_bounds.get(geometry)
         if partition_bounds_df is not None:
-            # Unpack bounds coordinates and make sure x0 < x1 & y0 < y1
+            # unpack bounds coordinates and make sure x0 < x1 & y0 < y1
             x0, y0, x1, y1 = bounds
             if x0 > x1:
                 x0, x1 = x1, x0
@@ -116,10 +116,6 @@ def read_tiledb_cloud(
                 | (partition_bounds_df.y0 > y1)
             )
             partition_slices = np.array(partition_slices)[inds].tolist()
-
-    if not partition_slices:
-        # all partitions filtered out
-        return empty_df
 
     return _read_geodataframe(uri, *partition_slices, **kwargs)
 
@@ -151,14 +147,6 @@ def _read_geodataframe(
         for name, columns in column_lists.items()
     }
     return GeoDataFrame(new_columns, geometry=geometry)
-
-
-def _iter_flat_geometry_dtypes(df: GeoDataFrame) -> Iterable[FlatGeometryDtype]:
-    for name, dtype in df.dtypes.items():
-        if isinstance(dtype, FlatGeometryDtype):
-            yield dtype
-        elif isinstance(dtype, GeometryDtype):
-            yield FlatGeometryDtype(dtype)
 
 
 def _flatten_geometry_columns(df: GeoDataFrame) -> GeoDataFrame:
