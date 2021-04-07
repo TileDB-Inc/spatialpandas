@@ -4,11 +4,16 @@ import itertools as it
 import json
 from collections import defaultdict
 from numbers import Real
-from typing import Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 import tiledb
+
+try:
+    from tiledb.cloud.compute import Delayed
+except ImportError:  # pragma: no cover
+    Delayed = None
 
 from ..geodataframe import GeoDataFrame
 from ..geometry import GeometryDtype
@@ -16,9 +21,13 @@ from ..geometry.flattened import FlatGeometryArray, FlatGeometryDtype
 
 
 def to_tiledb(
-    df: GeoDataFrame, uri: str, npartitions: int = 0, ctx: Optional[tiledb.Ctx] = None
+    df: GeoDataFrame,
+    uri: str,
+    npartitions: int = 0,
+    ctx: Optional[tiledb.Ctx] = None,
+    tiledb_cloud_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    kwargs = dict(
+    from_pandas_kwargs = dict(
         # write a dense array only if the df index is range(0, len(df))
         sparse=not df.index.equals(pd.RangeIndex(len(df))),
         varlen_types=frozenset(
@@ -31,7 +40,9 @@ def to_tiledb(
 
     npartitions = min(len(df), npartitions)
     if npartitions <= 0:
-        return tiledb.from_pandas(uri, _flatten_geometry_columns(df), **kwargs)
+        return tiledb.from_pandas(
+            uri, _flatten_geometry_columns(df), **from_pandas_kwargs
+        )
 
     # sort the dataframe by the first index level if not already sorted
     # TODO: figure out how to take into account all levels for MultiIndex
@@ -65,7 +76,12 @@ def to_tiledb(
     }
 
     # write all partitions to tiledb
-    _from_multiple_pandas(uri, map(_flatten_geometry_columns, partition_dfs), **kwargs)
+    _from_multiple_pandas(
+        uri,
+        map(_flatten_geometry_columns, partition_dfs),
+        from_pandas_kwargs,
+        tiledb_cloud_kwargs,
+    )
 
     # save the partition ranges and geometry bounds as metadata
     with tiledb.open(uri, mode="w", ctx=ctx) as a:
@@ -158,15 +174,39 @@ def _flatten_geometry_columns(df: GeoDataFrame) -> GeoDataFrame:
     return df.assign(**new_columns) if new_columns else df
 
 
-def _from_multiple_pandas(uri: str, dfs: Iterable[pd.DataFrame], **kwargs) -> None:
-    # TODO: parallelize this loop
-    mode = "ingest"
-    for df in dfs:
-        # row_start_idx is used only for dense arrays, it's ignored for sparse
+def _from_multiple_pandas(
+    uri: str,
+    dfs: Iterable[pd.DataFrame],
+    from_pandas_kwargs: Optional[Mapping[str, Any]] = None,
+    tiledb_cloud_kwargs: Optional[Mapping[str, Any]] = None,
+) -> None:
+    def from_pandas(df: pd.DataFrame, mode) -> None:
         tiledb.from_pandas(
-            uri, df, mode=mode, full_domain=True, row_start_idx=df.index[0], **kwargs
+            uri,
+            df,
+            mode=mode,
+            full_domain=True,
+            # row_start_idx is used only for dense arrays, it's ignored for sparse
+            row_start_idx=df.index[0],
+            **(from_pandas_kwargs or {}),
         )
-        mode = "append"
+
+    iter_dfs = iter(dfs)
+
+    if Delayed is None or tiledb_cloud_kwargs is None:
+        from_pandas(next(iter_dfs), mode="ingest")
+        for df in iter_dfs:
+            from_pandas(df, mode="append")
+    else:
+        ingest_task = Delayed(from_pandas, **tiledb_cloud_kwargs)(
+            next(iter_dfs), mode="ingest"
+        )
+        tasks = [ingest_task]
+        for df in iter_dfs:
+            append_task = Delayed(from_pandas, **tiledb_cloud_kwargs)(df, mode="append")
+            append_task.depends_on(ingest_task)
+            tasks.append(append_task)
+        ingest_task.compute()
 
 
 def iter_partition_slices(array: np.ndarray, n: int) -> Iterable[slice]:
