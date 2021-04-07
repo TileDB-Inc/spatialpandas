@@ -84,7 +84,7 @@ def test_load_partition_metadata(df, npartitions, tmp_path_factory):
 @given(
     df=st_geodataframe(min_size=8, max_size=20),
     pack=st.booleans(),
-    npartitions=st.sampled_from([0, 3]),
+    npartitions=st.sampled_from([1, 3]),
     tiledb_cloud_kwargs=(
         st.sampled_from([None, {"local": True}]) if Delayed is not None else st.none()
     ),
@@ -120,16 +120,26 @@ def test_to_tiledb_read_tiledb_roundtrip(
     df=st_geodataframe(min_size=8, max_size=20),
     geometry=st.sampled_from([None, "lines", "polygons"]),
     bounds=st_bounds(),
+    tiledb_cloud_kwargs=(
+        st.sampled_from([None, {"local": True}]) if Delayed is not None else st.none()
+    ),
 )
 @hyp_settings
-def test_read_tiledb_bounds(df, geometry, bounds, tmp_path_factory):
+def test_read_tiledb_bounds(
+    df, geometry, bounds, tiledb_cloud_kwargs, tmp_path_factory
+):
     pack_geodataframe(df, inplace=True)
 
     with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
         uri = str(tmp_path / "df.tdb")
         to_tiledb(df, uri, npartitions=3)
 
-        df_read = read_tiledb(uri, bounds=bounds, geometry=geometry)
+        df_read = read_tiledb(
+            uri,
+            geometry=geometry,
+            bounds=bounds,
+            tiledb_cloud_kwargs=tiledb_cloud_kwargs,
+        )
         assert isinstance(df_read, GeoDataFrame)
         assert df_read.geometry.name == geometry or df.geometry.name
 

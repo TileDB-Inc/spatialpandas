@@ -3,6 +3,7 @@ __all__ = ["to_tiledb", "read_tiledb"]
 import itertools as it
 import json
 from collections import defaultdict
+from functools import partial
 from numbers import Real
 from typing import Any, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -23,7 +24,7 @@ from ..geometry.flattened import FlatGeometryArray, FlatGeometryDtype
 def to_tiledb(
     df: GeoDataFrame,
     uri: str,
-    npartitions: int = 0,
+    npartitions: int = 1,
     ctx: Optional[tiledb.Ctx] = None,
     tiledb_cloud_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> None:
@@ -39,7 +40,7 @@ def to_tiledb(
     )
 
     npartitions = min(len(df), npartitions)
-    if npartitions <= 0:
+    if npartitions <= 1:
         return tiledb.from_pandas(
             uri, _flatten_geometry_columns(df), **from_pandas_kwargs
         )
@@ -100,8 +101,13 @@ def read_tiledb(
     geometry: Optional[str] = None,
     bounds: Optional[Tuple[Real, Real, Real, Real]] = None,
     ctx: Optional[tiledb.Ctx] = None,
+    tiledb_cloud_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> GeoDataFrame:
-    kwargs = dict(geometry=geometry, attrs=columns, ctx=ctx)
+    kwargs = dict(
+        geometry=geometry,
+        open_df_kwargs=dict(attrs=columns, ctx=ctx),
+        tiledb_cloud_kwargs=tiledb_cloud_kwargs,
+    )
 
     # load the metadata for partitions and geometry column bounds
     partition_slices, partition_bounds = load_partition_metadata(uri)
@@ -143,26 +149,53 @@ def _read_geodataframe(
     uri: str,
     *partition_slices: slice,
     geometry: Optional[str] = None,
-    **kwargs,
+    open_df_kwargs: Optional[Mapping[str, Any]] = None,
+    tiledb_cloud_kwargs: Optional[Mapping[str, Any]] = None,
 ) -> GeoDataFrame:
-    # default to empty dataframe for no partition_slices
-    idxs = partition_slices or (None,)
-    column_lists = defaultdict(list)
-    for idx in idxs:
-        # read the dataframe for this partition slice
-        df = tiledb.open_dataframe(uri, idx=idx, use_arrow=False, **kwargs)
-        for name, column in df.items():
-            # unflatten the geometry columns
-            if isinstance(column.dtype, FlatGeometryDtype):
-                column = column.astype(column.dtype.geometry_dtype)
-            # collect columns across all partitions to concat them later
-            column_lists[name].append(column)
+    read_partition = partial(
+        _read_geodataframe_partition, uri=uri, **(open_df_kwargs or {})
+    )
 
-    new_columns = {
-        name: pd.concat(columns) if len(columns) > 1 else columns[0]
-        for name, columns in column_lists.items()
-    }
-    return GeoDataFrame(new_columns, geometry=geometry)
+    if len(partition_slices) <= 1:
+        idx = partition_slices[0] if partition_slices else None
+        named_columns = read_partition(idx=idx)
+
+    elif Delayed is None or tiledb_cloud_kwargs is None:
+        named_columns = _concat_columns(
+            read_partition(idx=idx) for idx in partition_slices
+        )
+
+    else:
+        read_tasks = [
+            Delayed(read_partition, **tiledb_cloud_kwargs)(idx=idx)
+            for idx in partition_slices
+        ]
+        named_columns = Delayed(_concat_columns, local=True)(read_tasks).compute()
+
+    return GeoDataFrame(named_columns, geometry=geometry)
+
+
+def _read_geodataframe_partition(
+    uri: str, idx: Optional[slice], **kwargs
+) -> Mapping[str, pd.Series]:
+    named_columns = {}
+    df = tiledb.open_dataframe(uri, idx=idx, use_arrow=False, **kwargs)
+    for name, column in df.items():
+        # unflatten the geometry columns
+        if isinstance(column.dtype, FlatGeometryDtype):
+            column = column.astype(column.dtype.geometry_dtype)
+        named_columns[name] = column
+    return named_columns
+
+
+def _concat_columns(
+    named_column_dicts: Iterable[Mapping[str, pd.Series]]
+) -> Mapping[str, pd.Series]:
+    concat_columns = defaultdict(list)
+    for named_columns in named_column_dicts:
+        for name, column in named_columns.items():
+            concat_columns[name].append(column)
+    return {name: pd.concat(columns) for name, columns in concat_columns.items()}
 
 
 def _flatten_geometry_columns(df: GeoDataFrame) -> GeoDataFrame:
