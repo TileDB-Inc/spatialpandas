@@ -63,8 +63,7 @@ class GeoDataFrame(pd.DataFrame):
         return _MaybeGeoSeries
 
     def set_geometry(self, geometry, inplace=False):
-        if (geometry not in self or
-                not isinstance(self[geometry].dtype, GeometryDtype)):
+        if geometry not in self or not isinstance(self[geometry].dtype, GeometryDtype):
             raise ValueError(
                 "The geometry argument must be the name of a spatialpandas "
                 "geometry column in the spatialpandas GeoDataFrame"
@@ -75,6 +74,24 @@ class GeoDataFrame(pd.DataFrame):
             return self
         else:
             return GeoDataFrame(self, geometry=geometry)
+
+    def pack(self, p=15, inplace=False):
+        """
+        Reorder dataframe spatially along a Hilbert space filling curve
+
+        Sets the index to the computed Hilbert distance values.
+
+        Args:
+            p: Hilbert curve p parameter
+            inplace: True to reorder this GeoDataFrame in place, False to return
+                a new reordered GeoDataFrame.
+
+        Returns:
+            Spatially partitioned GeoDataFrame
+        """
+        hilbert_distance = self.geometry.hilbert_distance(p=p)
+        hilbert_distance.rename_axis("hilbert_distance", inplace=True)
+        return self.set_index(hilbert_distance, inplace=inplace)
 
     def _has_valid_geometry(self):
         if (self._geometry is not None and
@@ -109,9 +126,8 @@ class GeoDataFrame(pd.DataFrame):
     @property
     def cx(self):
         from .geometry.base import _CoordinateIndexer
-        return _CoordinateIndexer(
-            self.geometry.array, parent=self
-        )
+
+        return _CoordinateIndexer(self.geometry.array, parent=self)
 
     def build_sindex(self):
         self.geometry.build_sindex()

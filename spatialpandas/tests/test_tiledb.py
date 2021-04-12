@@ -21,15 +21,6 @@ hyp_settings = settings(
 )
 
 
-def pack_geodataframe(df, *, geometry=None, p=15, inplace=False):
-    if geometry is None:
-        geometry = df.geometry
-    hilbert_distance = geometry.hilbert_distance(p=p)
-    df2 = df.set_index(hilbert_distance, inplace=inplace)
-    (df2 if df2 is not None else df).rename_axis("hilbert_distance", inplace=True)
-    return df2
-
-
 def test_iter_partition_slices():
     f = np.full  # f(frequency, value)
     a = np.r_[f(5, 1), f(3, 4), f(4, 6), f(2, 8), f(1, 10), f(2, 12), f(3, 15)]
@@ -94,7 +85,7 @@ def test_to_tiledb_read_tiledb_roundtrip(
     df, pack, npartitions, tiledb_cloud_kwargs, tmp_path_factory
 ):
     if pack:
-        pack_geodataframe(df, inplace=True)
+        df.pack(inplace=True)
 
     with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
         uri = str(tmp_path / "df.tdb")
@@ -123,7 +114,7 @@ def test_to_tiledb_read_tiledb_roundtrip(
 )
 @hyp_settings
 def test_read_tiledb_bounds(df, geometry, bounds, tmp_path_factory):
-    pack_geodataframe(df, inplace=True)
+    df.pack(inplace=True)
 
     with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
         uri = str(tmp_path / "df.tdb")
