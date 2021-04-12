@@ -1,7 +1,7 @@
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 
 from .geometry.strategies import st_bounds, st_geodataframe
@@ -93,17 +93,13 @@ def test_to_tiledb_read_tiledb_roundtrip(
             df, uri, npartitions=npartitions, tiledb_cloud_kwargs=tiledb_cloud_kwargs
         )
 
-        geometry = "multilines"
-
-        df_read = read_tiledb(uri, geometry=geometry)
+        df_read = read_tiledb(uri)
         assert isinstance(df_read, GeoDataFrame)
-        assert df_read.geometry.name == geometry
         pd.testing.assert_frame_equal(df.sort_index(), df_read.sort_index())
 
         columns = ["a", "multilines", "polygons"]
-        df_read = read_tiledb(uri, columns=columns, geometry=geometry)
+        df_read = read_tiledb(uri, columns=columns)
         assert isinstance(df_read, GeoDataFrame)
-        assert df_read.geometry.name == geometry
         pd.testing.assert_frame_equal(df[columns].sort_index(), df_read.sort_index())
 
 
@@ -114,7 +110,10 @@ def test_to_tiledb_read_tiledb_roundtrip(
 )
 @hyp_settings
 def test_read_tiledb_bounds(df, geometry, bounds, tmp_path_factory):
+    df.set_geometry("polygons", inplace=True)
     df.pack(inplace=True)
+    # if there are any Hilbert distance ties there is no unique ordering, so skip the test
+    assume(len(set(df.index)) == len(df.index))
 
     with tmp_path_factory.mktemp("spatialpandas", numbered=True) as tmp_path:
         uri = str(tmp_path / "df.tdb")
@@ -122,14 +121,17 @@ def test_read_tiledb_bounds(df, geometry, bounds, tmp_path_factory):
 
         df_read = read_tiledb(uri, geometry=geometry, bounds=bounds)
         assert isinstance(df_read, GeoDataFrame)
-        assert df_read.geometry.name == geometry or df.geometry.name
+        expected_geometry = geometry or "points"
+        assert df_read.geometry.name == expected_geometry
 
         # create a DaskGeoDataFrame with the same partitions created by to_tiledb
         p_slices, p_bounds = load_partition_metadata(uri)
         divisions = [*(s.start for s in p_slices), p_slices[-1].stop]
-        ddf = dd.from_pandas(df, npartitions=1).repartition(divisions=divisions)
-        if geometry:
-            ddf = ddf.set_geometry(geometry)
+        ddf = (
+            dd.from_pandas(df, npartitions=1)
+            .repartition(divisions=divisions)
+            .set_geometry(expected_geometry)
+        )
 
         # and use the `ddf.cx_partitions` indexer to get the expected bounded partitions
         x0, y0, x1, y1 = bounds
