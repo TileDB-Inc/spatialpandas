@@ -45,15 +45,19 @@ def to_tiledb(
         )
 
     # sort the dataframe by the first index level if not already sorted
-    # TODO: figure out how to take into account all levels for MultiIndex
-    sorted_index, indices = df.index.sortlevel(level=0)
-    if not sorted_index.equals(df.index):
-        df = df.iloc[indices]
+    if isinstance(df.index, pd.RangeIndex):
+        # fast path for range indexes
+        if df.index.step < 0:
+            df = df[::-1]
+        index_values = df.index
+    else:
+        # TODO: figure out how to take into account all levels for MultiIndex
+        sorted_index, indices = df.index.sortlevel(level=0)
+        if not sorted_index.equals(df.index):
+            df = df.iloc[indices]
+        index_values = sorted_index.get_level_values(level=0)
 
-    # partition the dataframe into sub-dataframes based on the first index level
-    index_values = sorted_index.get_level_values(level=0).values
-    partition_slices = iter_partition_slices(index_values, npartitions)
-
+    # partition the dataframe into sub-dataframes based on index values
     # for each partition:
     # - record its range
     # - select the respective sub-dataframe
@@ -61,7 +65,7 @@ def to_tiledb(
     partition_dfs = []
     partition_ranges = []
     all_bounds = defaultdict(list)
-    for partition_slice in partition_slices:
+    for partition_slice in iter_partition_slices(index_values, npartitions):
         partition_df = df.loc[partition_slice]
         partition_dfs.append(partition_df)
         partition_ranges.append((partition_slice.start, partition_slice.stop))
@@ -203,55 +207,52 @@ def _from_multiple_pandas(
         ingest_task.compute()
 
 
-def iter_partition_slices(array: np.ndarray, n: int) -> Iterable[slice]:
-    """Split `array` values into (at most) `n` partitions of approximately equal sum.
+def iter_partition_slices(values: np.ndarray, p: int) -> Iterable[slice]:
+    """Split `values` into (at most) `p` partitions of approximately equal sum.
 
     Each partition is represented as `slice(start, stop)` where *both `start` and `stop`
     are inclusive*.
 
     Note: the resulting partitioning is not guaranteed to be optimal.
 
-    :param array: The values to split
-    :param n: Max number of partitions
-    :return: An iterable of `array` value slices, one slice per partition
+    :param values: The values to split
+    :param p: Max number of partitions
+    :return: An iterable of slices, one slice per partition
     """
-    unique, counts = np.unique(array, return_counts=True)
-    # convert unique elements from numpy to pure python instances
-    unique = unique.tolist()
+    if np.all(values[:-1] < values[1:]):
+        # fast path: values are sorted by increasing order and have no duplicates
+        unique = values
+        counts = None
+    else:
+        unique, counts = np.unique(values, return_counts=True)
 
-    num_unique = len(unique)
-    if num_unique <= n:
-        # if equal or more partitions than unique elements, each partition
-        # consists of a single unique element
-        return (slice(item, item) for item in unique)
+    p = min(p, len(unique))
+    boundaries = len(values) / p * np.arange(p + 1)
+    if counts is None:
+        boundaries = boundaries.astype(int)
+    else:
+        # find the indices where the cumulative count sums are sandwiched
+        boundaries = np.searchsorted(counts.cumsum(), boundaries, side="right")
+        # if there are any duplicate boundaries, increment them so that they become unique
+        for i, boundary in enumerate(boundaries[:-1]):
+            if boundaries[i + 1] <= boundary:
+                boundaries[i + 1] = boundary + 1
 
-    # Adapted from https://stackoverflow.com/a/54024280/240525
-    # finds the indices where the cumulative sums are sandwiched
-    p_size = len(array) / n
-    boundaries = np.searchsorted(
-        counts.cumsum(), np.arange(1, n) * p_size, side="right"
-    )
+    # boundaries: unique increasing indexes from 0 up to len(unique)
+    assert boundaries[0] == 0
+    assert boundaries[-1] == len(unique)
+    assert np.all(np.diff(boundaries) > 0)
 
-    start_indices = np.r_[0, boundaries]
-    # if there are duplicates in start_indices, increment them
-    for i, start_index in enumerate(start_indices[:-1]):
-        if start_indices[i + 1] <= start_index:
-            start_indices[i + 1] = start_index + 1
-
-    # inclusive stop_indices: 1 less from the next start index
-    stop_indices = np.r_[start_indices[1:], num_unique]
-    stop_indices -= 1
-
-    # sanity checks
-    assert np.all(start_indices <= stop_indices)
-    for indices in start_indices, stop_indices:
-        assert np.all(indices >= 0)
-        assert np.all(indices < num_unique)
-        assert np.all(np.diff(indices) > 0)
+    if isinstance(unique, pd.RangeIndex):
+        get_item = lambda x: x
+    else:
+        # convert unique elements from numpy to pure python instances with .item()
+        get_item = lambda x: x.item()
 
     return (
-        slice(unique[start], unique[stop])
-        for start, stop in zip(start_indices, stop_indices)
+        # inclusive slice stop: 1 less from the next boundary
+        slice(get_item(unique[b1]), get_item(unique[b2 - 1]))
+        for b1, b2 in zip(boundaries[:-1], boundaries[1:])
     )
 
 

@@ -1,3 +1,5 @@
+import string
+
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
@@ -52,6 +54,81 @@ def test_iter_partition_slices():
     ]
     for p in range(7, len(a)):
         assert list(iter_partition_slices(a, p)) == [slice(i, i) for i in np.unique(a)]
+
+
+def test_iter_partition_slices_for_unique_values():
+    a = np.array(list(string.ascii_lowercase))
+
+    assert list(iter_partition_slices(a, 1)) == [slice("a", "z")]
+    assert list(iter_partition_slices(a, 2)) == [slice("a", "m"), slice("n", "z")]
+    assert list(iter_partition_slices(a, 3)) == [
+        slice("a", "h"),
+        slice("i", "q"),
+        slice("r", "z"),
+    ]
+    assert list(iter_partition_slices(a, 4)) == [
+        slice("a", "f"),
+        slice("g", "m"),
+        slice("n", "s"),
+        slice("t", "z"),
+    ]
+    assert list(iter_partition_slices(a, 5)) == [
+        slice("a", "e"),
+        slice("f", "j"),
+        slice("k", "o"),
+        slice("p", "t"),
+        slice("u", "z"),
+    ]
+    assert list(iter_partition_slices(a, 6)) == [
+        slice("a", "d"),
+        slice("e", "h"),
+        slice("i", "m"),
+        slice("n", "q"),
+        slice("r", "u"),
+        slice("v", "z"),
+    ]
+    assert list(iter_partition_slices(a, 7)) == [
+        slice("a", "c"),
+        slice("d", "g"),
+        slice("h", "k"),
+        slice("l", "n"),
+        slice("o", "r"),
+        slice("s", "v"),
+        slice("w", "z"),
+    ]
+    assert list(iter_partition_slices(a, 8)) == [
+        slice("a", "c"),
+        slice("d", "f"),
+        slice("g", "i"),
+        slice("j", "m"),
+        slice("n", "p"),
+        slice("q", "s"),
+        slice("t", "v"),
+        slice("w", "z"),
+    ]
+    assert list(iter_partition_slices(a, 9)) == [
+        slice("a", "b"),
+        slice("c", "e"),
+        slice("f", "h"),
+        slice("i", "k"),
+        slice("l", "n"),
+        slice("o", "q"),
+        slice("r", "t"),
+        slice("u", "w"),
+        slice("x", "z"),
+    ]
+    assert list(iter_partition_slices(a, 10)) == [
+        slice("a", "b"),
+        slice("c", "e"),
+        slice("f", "g"),
+        slice("h", "j"),
+        slice("k", "m"),
+        slice("n", "o"),
+        slice("p", "r"),
+        slice("s", "t"),
+        slice("u", "w"),
+        slice("x", "z"),
+    ]
 
 
 @given(df=st_geodataframe(min_size=8, max_size=20), npartitions=st.sampled_from([3, 7]))
