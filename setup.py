@@ -20,6 +20,9 @@ extras_require = {
         'geopandas',
         'holoviews',
         'matplotlib',
+    ],
+    'tiledb-cloud': [
+        'tiledb-cloud',
     ]
 }
 
@@ -28,9 +31,10 @@ install_requires = [
     'numba',
     'pandas>=0.25',
     'param',
-    'pyarrow>=0.15',
+    'pyarrow>=1.0',
     'python-snappy',
     'retrying',
+    'tiledb>=0.8.6',
 ]
 
 # Checking for platform explicitly because

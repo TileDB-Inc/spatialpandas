@@ -1,4 +1,5 @@
 import dask.dataframe as dd
+import geopandas as gp
 import pytest
 from hypothesis import given
 from pandas.testing import assert_frame_equal, assert_series_equal
@@ -29,7 +30,7 @@ def get_slices(v0, v1):
 
 
 @pytest.mark.slow
-@given(st_point_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_point_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_point_cx_selection(gp_point, rect):
     x0, y0, x1, y1 = rect
@@ -41,7 +42,7 @@ def test_point_cx_selection(gp_point, rect):
 
 
 @pytest.mark.slow
-@given(st_multipoint_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_multipoint_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multipoint_cx_selection(gp_multipoint, rect):
     x0, y0, x1, y1 = rect
@@ -53,7 +54,7 @@ def test_multipoint_cx_selection(gp_multipoint, rect):
 
 
 @pytest.mark.slow
-@given(st_line_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_line_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_line_cx_selection(gp_line, rect):
     x0, y0, x1, y1 = rect
@@ -65,7 +66,7 @@ def test_line_cx_selection(gp_line, rect):
 
 
 @pytest.mark.slow
-@given(st_multiline_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_multiline_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multiline_cx_selection(gp_multiline, rect):
     x0, y0, x1, y1 = rect
@@ -78,7 +79,7 @@ def test_multiline_cx_selection(gp_multiline, rect):
 
 @pytest.mark.slow
 @given(
-    st_polygon_array(min_size=1, geoseries=True),
+    st_polygon_array(min_size=1, astype=gp.GeoSeries),
     st_bounds(
         x_min=-150, x_max=150, y_min=-150, y_max=150, orient=True
     )
@@ -95,7 +96,7 @@ def test_polygon_cx_selection(gp_polygon, rect):
 
 @pytest.mark.slow
 @given(
-    st_multipolygon_array(min_size=1, geoseries=True),
+    st_multipolygon_array(min_size=1, astype=gp.GeoSeries),
     st_bounds(
         x_min=-150, x_max=150, y_min=-150, y_max=150, orient=True
     )
@@ -114,7 +115,7 @@ def test_multipolygon_cx_selection(gp_multipolygon, rect):
             assert all(expected == result)
 
 
-@given(st_multipoint_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_multipoint_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multipoint_cx_series_selection(gp_multipoint, rect):
     x0, y0, x1, y1 = rect
@@ -126,7 +127,7 @@ def test_multipoint_cx_series_selection(gp_multipoint, rect):
 
 
 @pytest.mark.slow
-@given(st_multipoint_array(min_size=6, geoseries=True), st_bounds(orient=True))
+@given(st_multipoint_array(min_size=6, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multipoint_cx_series_selection_dask(gp_multipoint, rect):
     x0, y0, x1, y1 = rect
@@ -137,7 +138,7 @@ def test_multipoint_cx_series_selection_dask(gp_multipoint, rect):
     assert_series_equal(expected, result, obj='GeoSeries')
 
 
-@given(st_multipoint_array(min_size=1, geoseries=True), st_bounds(orient=True))
+@given(st_multipoint_array(min_size=1, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multipoint_cx_frame_selection(gp_multipoint, rect):
     x0, y0, x1, y1 = rect
@@ -151,7 +152,7 @@ def test_multipoint_cx_frame_selection(gp_multipoint, rect):
 
 
 @pytest.mark.slow
-@given(st_multipoint_array(min_size=6, geoseries=True), st_bounds(orient=True))
+@given(st_multipoint_array(min_size=6, astype=gp.GeoSeries), st_bounds(orient=True))
 @hyp_settings
 def test_multipoint_cx_frame_selection_dask(gp_multipoint, rect):
     x0, y0, x1, y1 = rect
